@@ -101,6 +101,49 @@ void publishGatewayInfo() {
     app->mqtt.publishGatewayInfo(out);
 }
 
+#ifdef DEBUG_FAKE_STATIONS
+/**
+ * @brief Inietta un pacchetto di telemetria finto nel NodeManager.
+ *
+ * Simula due stazioni ("ws-t1", "ws-t2") alternandole a ogni chiamata, con
+ * valori sinusoidali lenti. Il pacchetto ha esattamente il formato JSON del
+ * protocollo LoRa (PROTOCOL.md), quindi esercita l'intera catena reale:
+ * parsing, storico, ACK, pubblicazione MQTT e display.
+ */
+void injectFakeStationPacket() {
+    static uint16_t seq[2] = {0, 0};
+    static uint8_t which = 0;
+    which ^= 1;
+
+    const float ph = millis() / 1000.0f + which * 400.0f;
+    JsonDocument doc;
+    doc["type"] = "data";
+    doc["id"] = which ? "ws-t2" : "ws-t1";
+    doc["fw"] = "0.9.0";
+    doc["seq"] = ++seq[which];
+    doc["t"] = serialized(String(21.5f + 4.0f * sinf(ph / 600.0f), 1));
+    doc["rh"] = serialized(String(60.0f + 15.0f * sinf(ph / 900.0f), 1));
+    doc["p"] = serialized(String(1013.0f + 6.0f * sinf(ph / 1800.0f), 1));
+    if (seq[which] % 5 == 0) {
+        doc["rain"] = serialized(String(0.2f + 0.2f * which, 1));
+    }
+    const float ws = 2.0f + 2.0f * sinf(ph / 300.0f) + which;
+    doc["ws"] = serialized(String(ws, 1));
+    doc["wg"] = serialized(String(ws + 1.8f, 1));
+    doc["wd"] = (static_cast<int>(ph / 20.0f) * 15 + which * 90) % 360;
+    doc["vbat"] = serialized(String(3.92f + 0.12f * sinf(ph / 2400.0f), 2));
+    doc["ibat"] = -40 + static_cast<int>(30.0f * sinf(ph / 500.0f));
+    doc["ipan"] = 110 + which * 20;
+    doc["iload"] = 35;
+
+    char buf[256];
+    const size_t len = serializeJson(doc, buf, sizeof(buf));
+    const float rssi = -68.0f - 8.0f * which - 4.0f * sinf(ph / 100.0f);
+    app->nodes.handlePacket(reinterpret_cast<const uint8_t*>(buf), len, rssi,
+                            9.5f, app->time.now());
+}
+#endif  // DEBUG_FAKE_STATIONS
+
 /** @brief Gestione dei comandi ricevuti via MQTT. */
 void handleCommand(const String& cmd, const String& payload) {
     if (cmd == "restart") {
@@ -200,6 +243,12 @@ void setup() {
 
     app = new App();
 
+#ifdef DEBUG_FAKE_STATIONS
+    Logger::warn(kTag,
+                 "DEBUG_FAKE_STATIONS attivo: telemetria simulata al posto "
+                 "della ricezione LoRa");
+#endif
+
     if (!app->config.begin()) {
         Logger::error(kTag, "LittleFS non disponibile, riavvio tra 5s");
         delay(5000);
@@ -273,8 +322,18 @@ void loop() {
             ArduinoOTA.handle();
         }
 
-        // Controllo nodi offline e pubblicazione stato ogni pochi secondi.
         const uint32_t now = millis();
+
+#ifdef DEBUG_FAKE_STATIONS
+        // Telemetria simulata: un pacchetto ogni 15s, stazioni alternate.
+        static uint32_t lastFakeMs = 0;
+        if (app->time.isSynced() && now - lastFakeMs > 15000) {
+            lastFakeMs = now;
+            injectFakeStationPacket();
+        }
+#endif
+
+        // Controllo nodi offline e pubblicazione stato ogni pochi secondi.
         if (now - app->lastNodeLoopMs > 5000) {
             app->lastNodeLoopMs = now;
             app->nodes.loop();
