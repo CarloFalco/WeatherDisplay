@@ -44,6 +44,14 @@ Wi-Fi, MQTT, LoRa, OpenWeatherMap. Al salvataggio il gateway riavvia e
 parte in modalità normale. La configurazione è in `/config.json` su
 LittleFS e sopravvive agli aggiornamenti firmware.
 
+Per broker **MQTT su TLS** (tipicamente porta **8883**) attivare il flag
+`tls` nella sezione MQTT: viene comunque abilitato in automatico quando la
+porta è 8883. Il certificato del broker viene **verificato** contro la CA
+Let's Encrypt (ISRG Root X1) inclusa in `src/letsEncryptCaCrt.h`; se il
+broker usa un'altra CA sostituire il PEM in quel file. La connessione TLS
+parte solo dopo la sincronizzazione NTP (necessaria per validare le date
+del certificato).
+
 ## Cablaggio modulo LoRa (SX1276)
 
 Il pannello e-paper occupa GPIO **0-8, 12, 13, 38, 40, 41**: non usarli.
@@ -75,6 +83,7 @@ Base configurabile (default `meteo`), `{name}` = nome gateway:
 | `meteo/gateway/{name}/cmd/info` | pubblica subito lo stato |
 | `meteo/gateway/{name}/cmd/ota_check` | controlla le release GitHub |
 | `meteo/gateway/{name}/cmd/ota_confirm` | payload = id nodo da aggiornare |
+| `meteo/gateway/{name}/cmd/factory_reset` | cancella i dati salvati e riavvia in AP |
 
 ## Display
 

@@ -131,8 +131,7 @@ class OtaManager {
     uint16_t windowSent_ = 0;     ///< blocchi inviati nella finestra corrente
     uint8_t retries_ = 0;
     uint32_t lastActionMs_ = 0;
-    uint32_t checkScheduledMs_ = 0;
-    bool everChecked_ = false;
+    uint32_t nextCheckMs_ = 0;  ///< millis() del prossimo controllo release
 
     static constexpr uint8_t kMaxRetries = 5;
     static constexpr uint32_t kAckTimeoutMs = 15000;

@@ -60,6 +60,7 @@ class WebPortal {
     void handleGetConfig(bool withSecrets);
     void handleSetConfig();
     void handleReboot();
+    void handleFactoryReset();
     void handleOtaCheck();
     void handleOtaConfirm();
     void handleFwUpload();

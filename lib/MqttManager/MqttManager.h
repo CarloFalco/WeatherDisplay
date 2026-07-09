@@ -17,6 +17,7 @@
 #include <Arduino.h>
 #include <PubSubClient.h>
 #include <WiFiClient.h>
+#include <WiFiClientSecure.h>
 
 #include <functional>
 
@@ -31,6 +32,19 @@ class MqttManager {
     /** @brief Callback comando: nome (ultimo livello del topic) e payload. */
     using CommandFn =
         std::function<void(const String& cmd, const String& payload)>;
+
+    /**
+     * @brief Imposta il certificato CA (PEM) per validare il broker TLS.
+     *
+     * Da chiamare prima di begin(). Se non impostato, in modalità TLS il
+     * certificato del broker non viene verificato (setInsecure).
+     * Nota: la verifica richiede l'ora di sistema corretta (NTP), perché
+     * mbedTLS controlla il periodo di validità del certificato.
+     */
+    void setCaCert(const char* pemCert) { caCert_ = pemCert; }
+
+    /** @brief true se la connessione TLS valida il certificato del broker. */
+    bool usesCaCert() const { return caCert_ != nullptr; }
 
     void begin(const MqttConfig& cfg, const String& gatewayName);
 
@@ -57,7 +71,9 @@ class MqttManager {
     uint32_t publishCount() const { return publishCount_; }
 
    private:
-    static constexpr uint32_t kRetryIntervalMs = 5000;
+    // Retry non aggressivi: il connect (handshake TLS incluso) è bloccante
+    // e gira nel loop principale insieme a display e web server.
+    static constexpr uint32_t kRetryIntervalMs = 15000;
     static constexpr uint16_t kBufferSize = 1024;
 
     void connect();
@@ -67,7 +83,10 @@ class MqttManager {
     MqttConfig cfg_;
     String name_;
     String topicPrefix_;  ///< "{base}/gateway/{name}"
+    // Entrambi i client derivano da Client; se ne usa uno solo secondo TLS.
     WiFiClient net_;
+    WiFiClientSecure netSecure_;
+    const char* caCert_ = nullptr;
     PubSubClient client_;
     uint32_t lastAttemptMs_ = 0;
     uint32_t publishCount_ = 0;

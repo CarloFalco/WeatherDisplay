@@ -90,6 +90,23 @@ bool ConfigManager::save() const {
     return true;
 }
 
+bool ConfigManager::factoryReset() {
+    Logger::warn(kTag, "Ripristino di fabbrica: cancellazione dati salvati");
+    // File scritti dal firmware durante il normale funzionamento.
+    static const char* kFiles[] = {kConfigFile, "/log.txt", "/log.old.txt",
+                                    "/node_fw.bin"};
+    bool ok = true;
+    for (const char* path : kFiles) {
+        if (LittleFS.exists(path) && !LittleFS.remove(path)) {
+            Logger::error(kTag, "Impossibile eliminare %s", path);
+            ok = false;
+        }
+    }
+    // Riporta la configurazione in RAM ai valori di default.
+    cfg_ = Config{};
+    return ok;
+}
+
 void ConfigManager::toJson(JsonDocument& doc, bool includeSecrets) const {
     JsonObject wifi = doc["wifi"].to<JsonObject>();
     wifi["ssid"] = cfg_.wifi.ssid;
@@ -101,6 +118,8 @@ void ConfigManager::toJson(JsonDocument& doc, bool includeSecrets) const {
     mqtt["username"] = cfg_.mqtt.username;
     mqtt["password"] = includeSecrets ? cfg_.mqtt.password : String("");
     mqtt["base_topic"] = cfg_.mqtt.baseTopic;
+    mqtt["tls"] = cfg_.mqtt.tls;
+    mqtt["client_id"] = cfg_.mqtt.clientId;
 
     JsonObject lora = doc["lora"].to<JsonObject>();
     lora["frequency"] = cfg_.lora.frequency;
@@ -157,6 +176,8 @@ void ConfigManager::fromJson(const JsonDocument& doc) {
     assignIfPresent(mqtt["username"], cfg_.mqtt.username);
     assignIfPresent(mqtt["password"], cfg_.mqtt.password, true);
     assignIfPresent(mqtt["base_topic"], cfg_.mqtt.baseTopic);
+    assignBool(mqtt["tls"], cfg_.mqtt.tls);
+    assignIfPresent(mqtt["client_id"], cfg_.mqtt.clientId);
 
     JsonObjectConst lora = doc["lora"];
     assignNum(lora["frequency"], cfg_.lora.frequency);

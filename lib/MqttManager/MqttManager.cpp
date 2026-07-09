@@ -8,15 +8,49 @@
 
 namespace {
 constexpr const char* kTag = "MQTT";
+
+/** @brief Traduce il codice di stato di PubSubClient in testo. */
+const char* stateText(int state) {
+    switch (state) {
+        case -4: return "timeout";
+        case -3: return "connessione persa";
+        case -2: return "connessione rifiutata (rete/TLS?)";
+        case -1: return "disconnesso";
+        case 1:  return "protocollo non supportato";
+        case 2:  return "client id rifiutato";
+        case 3:  return "broker non disponibile";
+        case 4:  return "utente o password errati";
+        case 5:  return "non autorizzato";
+        default: return "sconosciuto";
+    }
 }
+}  // namespace
 
 void MqttManager::begin(const MqttConfig& cfg, const String& gatewayName) {
     cfg_ = cfg;
     name_ = gatewayName;
     topicPrefix_ = cfg_.baseTopic + "/gateway/" + name_;
-    client_.setClient(net_);
+    if (cfg_.useTls()) {
+        if (caCert_ != nullptr) {
+            // Verifica il certificato del broker contro la CA fornita
+            // (es. Let's Encrypt ISRG Root X1).
+            netSecure_.setCACert(caCert_);
+            Logger::info(kTag, "MQTT in TLS con verifica certificato");
+        } else {
+            // Nessuna CA: traffico cifrato ma broker non autenticato.
+            netSecure_.setInsecure();
+            Logger::info(kTag, "MQTT in TLS senza verifica certificato");
+        }
+        // Limita la durata di un tentativo fallito: l'handshake gira nel
+        // loop principale (default 120s = loop congelato a broker muto).
+        netSecure_.setHandshakeTimeout(10);
+        client_.setClient(netSecure_);
+    } else {
+        client_.setClient(net_);
+    }
     client_.setServer(cfg_.host.c_str(), cfg_.port);
     client_.setBufferSize(kBufferSize);
+    client_.setSocketTimeout(8);  // secondi, default 15
     client_.setCallback(
         [this](char* topic, uint8_t* payload, unsigned int length) {
             handleMessage(topic, payload, length);
@@ -47,11 +81,15 @@ void MqttManager::loop(bool networkUp) {
 }
 
 void MqttManager::connect() {
-    String clientId = name_ + "-" + String(static_cast<uint32_t>(
-                                        ESP.getEfuseMac() & 0xFFFFFF), HEX);
+    String clientId =
+        cfg_.clientId.length() > 0
+            ? cfg_.clientId
+            : name_ + "-" + String(static_cast<uint32_t>(
+                                       ESP.getEfuseMac() & 0xFFFFFF),
+                                   HEX);
     const String willTopic = topicPrefix_ + "/status";
-    Logger::info(kTag, "Connessione a %s:%u...", cfg_.host.c_str(),
-                 cfg_.port);
+    Logger::info(kTag, "Connessione a %s:%u%s...", cfg_.host.c_str(),
+                 cfg_.port, cfg_.useTls() ? " (TLS)" : "");
     bool ok;
     if (cfg_.username.length() > 0) {
         ok = client_.connect(clientId.c_str(), cfg_.username.c_str(),
@@ -62,7 +100,9 @@ void MqttManager::connect() {
                              "offline");
     }
     if (!ok) {
-        Logger::warn(kTag, "Connessione fallita (stato %d)", client_.state());
+        const int st = client_.state();
+        Logger::warn(kTag, "Connessione fallita: %s (stato %d)",
+                     stateText(st), st);
         return;
     }
     Logger::info(kTag, "Connesso al broker");

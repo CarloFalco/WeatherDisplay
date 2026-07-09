@@ -12,7 +12,9 @@
 namespace {
 constexpr const char* kTag = "OWM";
 constexpr const char* kHost = "api.openweathermap.org";
-constexpr uint32_t kTaskStack = 12288;
+// Stack abbondante: l'handshake TLS di mbedTLS + parsing JSON superano
+// facilmente i 12 KB e l'overflow provoca un reset del chip.
+constexpr uint32_t kTaskStack = 20480;
 constexpr uint32_t kHttpTimeoutMs = 10000;
 constexpr uint32_t kRetryOnErrorS = 120;
 }  // namespace
@@ -79,6 +81,7 @@ void WeatherManager::runFetch() {
 bool WeatherManager::fetchCurrent() {
     WiFiClientSecure client;
     client.setInsecure();  // niente validazione CA: solo dati meteo pubblici
+    client.setHandshakeTimeout(15);  // il default (120s) bloccherebbe il task
     HTTPClient http;
     http.setTimeout(kHttpTimeoutMs);
 
@@ -129,6 +132,7 @@ bool WeatherManager::fetchCurrent() {
 bool WeatherManager::fetchForecast() {
     WiFiClientSecure client;
     client.setInsecure();
+    client.setHandshakeTimeout(15);
     HTTPClient http;
     http.setTimeout(kHttpTimeoutMs);
 

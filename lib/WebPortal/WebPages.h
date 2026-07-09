@@ -60,6 +60,7 @@ legend{font-size:13px;font-weight:600;padding:0 6px}
   <button class="btn" onclick="api('/api/ota/check','POST')">Controlla aggiornamenti</button></div>
  <div class="card"><h2>Manutenzione</h2>
   <button class="btn warn" onclick="if(confirm('Riavviare il gateway?'))api('/api/reboot','POST')">Riavvia</button>
+  <button class="btn warn" onclick="factoryReset()">Ripristino di fabbrica</button>
   <a class="btn sec" style="text-decoration:none" href="/api/config/export" download="config.json">Esporta config</a>
   <label style="display:inline">Importa config <input type="file" id="impf" style="width:auto" onchange="importCfg(this)"></label>
   <form method="POST" action="/update" enctype="multipart/form-data" style="margin-top:10px">
@@ -76,7 +77,7 @@ legend{font-size:13px;font-weight:600;padding:0 6px}
 <div id="msg"></div>
 <script>
 const LBL={ssid:'SSID',password:'Password',host:'Host',port:'Porta',username:'Utente',
-base_topic:'Topic base',frequency:'Frequenza (Hz)',bandwidth:'Banda (Hz)',
+base_topic:'Topic base',tls:'TLS/SSL',client_id:'Client ID',frequency:'Frequenza (Hz)',bandwidth:'Banda (Hz)',
 spreading_factor:'Spreading factor',coding_rate:'Coding rate',tx_power:'Potenza TX (dBm)',
 sync_word:'Sync word',sck:'Pin SCK',miso:'Pin MISO',mosi:'Pin MOSI',cs:'Pin CS',
 rst:'Pin RST',dio0:'Pin DIO0',dio1:'Pin DIO1',name:'Nome gateway',timezone:'Fuso orario',
@@ -116,6 +117,9 @@ document.getElementById('otainfo').innerHTML=
  kv('Stato',s.ota.state)+kv('Ultima release',s.ota.latest_version||'-')+
  (s.ota.node?kv('Nodo in aggiornamento',s.ota.node+' · '+s.ota.progress+'%'):'')}
 function otaNode(id){if(confirm('Aggiornare il nodo '+id+'?'))api('/api/ota/confirm','POST',id)}
+async function factoryReset(){if(!confirm('Ripristino di fabbrica: verranno eliminati Wi-Fi, MQTT, LoRa e tutti i dati salvati. Il gateway ripartira in modalita configurazione. Procedere?'))return;
+const r=await api('/api/factory-reset','POST');
+if(r){msg('Dati eliminati, riavvio in modalita AP...');setTimeout(()=>location.reload(),8000)}}
 function fld(path,key,val){const id='f_'+path.replace(/\./g,'_');
 if(typeof val==='boolean')return `<label>${LBL[key]||key}
 <input type="checkbox" id="${id}" data-path="${path}" data-t="b" ${val?'checked':''}></label>`;

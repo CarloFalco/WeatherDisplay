@@ -36,6 +36,8 @@ void WebPortal::begin() {
     server_.on("/api/config/import", HTTP_POST,
                [this] { handleSetConfig(); });
     server_.on("/api/reboot", HTTP_POST, [this] { handleReboot(); });
+    server_.on("/api/factory-reset", HTTP_POST,
+               [this] { handleFactoryReset(); });
     server_.on("/api/ota/check", HTTP_POST, [this] { handleOtaCheck(); });
     server_.on("/api/ota/confirm", HTTP_POST,
                [this] { handleOtaConfirm(); });
@@ -155,6 +157,20 @@ void WebPortal::handleSetConfig() {
 
 void WebPortal::handleReboot() {
     server_.send(200, "text/plain", "OK");
+    if (reboot_) {
+        reboot_();
+    }
+}
+
+void WebPortal::handleFactoryReset() {
+    const bool ok = config_.factoryReset();
+    if (!ok) {
+        server_.send(500, "text/plain",
+                     "Cancellazione dati parzialmente fallita");
+        return;
+    }
+    server_.send(200, "text/plain", "OK");
+    Logger::warn(kTag, "Ripristino di fabbrica dalla Web UI, riavvio");
     if (reboot_) {
         reboot_();
     }

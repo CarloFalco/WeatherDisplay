@@ -24,6 +24,11 @@ struct MqttConfig {
     String username;
     String password;
     String baseTopic = "meteo";
+    bool tls = false;      ///< true = MQTT su TLS (tipicamente porta 8883)
+    String clientId;       ///< vuoto = generato dal nome gateway + MAC
+
+    /** @brief true se la connessione va cifrata (flag esplicito o porta 8883). */
+    bool useTls() const { return tls || port == 8883; }
 };
 
 /**
@@ -126,6 +131,17 @@ class ConfigManager {
 
     /** @brief Salva la configurazione corrente su file. */
     bool save() const;
+
+    /**
+     * @brief Ripristino di fabbrica: cancella tutti i dati salvati su
+     *        LittleFS (configurazione, log, firmware nodi in cache) e riporta
+     *        la configurazione in RAM ai valori di default.
+     *
+     * Dopo la chiamata il gateway va riavviato: non trovando la
+     * configurazione ripartirà in modalità Access Point.
+     * @return true se la cancellazione è riuscita.
+     */
+    bool factoryReset();
 
     /** @brief Serializza la configurazione in un documento JSON. */
     void toJson(JsonDocument& doc, bool includeSecrets = true) const;

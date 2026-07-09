@@ -13,7 +13,12 @@
 
 namespace {
 constexpr const char* kTag = "OTA";
-constexpr uint32_t kTaskStack = 12288;
+// Stack abbondante: handshake TLS + parsing JSON (vedi WeatherManager).
+constexpr uint32_t kTaskStack = 20480;
+// Primo controllo ritardato: al boot evita di sovrapporsi al fetch
+// OpenWeatherMap e alla connessione MQTT (ogni sessione TLS richiede
+// ~45 KB di heap durante l'handshake).
+constexpr uint32_t kFirstCheckDelayMs = 90000;
 
 /**
  * @brief Confronto SemVer semplificato ("1.2.3", con o senza "v" iniziale).
@@ -51,6 +56,7 @@ void OtaManager::begin(const NodeOtaConfig& cfg, LoraManager& lora,
     cfg_ = cfg;
     lora_ = &lora;
     nodes_ = &nodes;
+    nextCheckMs_ = millis() + kFirstCheckDelayMs;
 }
 
 const char* OtaManager::stateName() const {
@@ -104,7 +110,7 @@ void OtaManager::setState(OtaState s) {
     }
 }
 
-void OtaManager::checkNow() { checkScheduledMs_ = 0; everChecked_ = false; }
+void OtaManager::checkNow() { nextCheckMs_ = millis(); }
 
 void OtaManager::abort(const char* reason) {
     lastError_ = reason;
@@ -157,14 +163,12 @@ void OtaManager::loop(bool networkUp) {
         (state_ == OtaState::Idle || state_ == OtaState::UpToDate ||
          state_ == OtaState::Available || state_ == OtaState::Error ||
          state_ == OtaState::Success)) {
-        const bool due = !everChecked_ ||
-                         millis() - checkScheduledMs_ >
-                             cfg_.checkInterval * 1000UL;
-        if (due) {
-            everChecked_ = true;
-            checkScheduledMs_ = millis();
+        if (static_cast<int32_t>(millis() - nextCheckMs_) >= 0) {
+            nextCheckMs_ = millis() + cfg_.checkInterval * 1000UL;
             taskRunning_.store(true);
             setState(OtaState::Checking);
+            Logger::debug(kTag, "Avvio check release (heap %u)",
+                          static_cast<unsigned>(ESP.getFreeHeap()));
             if (xTaskCreatePinnedToCore(checkTaskEntry, "ota_check",
                                         kTaskStack, this, 1, nullptr,
                                         0) != pdPASS) {
@@ -373,6 +377,7 @@ void OtaManager::runCheck() {
     taskOk_ = false;
     WiFiClientSecure client;
     client.setInsecure();
+    client.setHandshakeTimeout(15);
     HTTPClient http;
     http.setTimeout(10000);
 
@@ -423,6 +428,7 @@ void OtaManager::runDownload() {
     taskOk_ = false;
     WiFiClientSecure client;
     client.setInsecure();
+    client.setHandshakeTimeout(15);
     HTTPClient http;
     http.setTimeout(30000);
     // I download degli asset GitHub passano da redirect su un CDN.

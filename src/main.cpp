@@ -23,6 +23,17 @@
 #include <WebPortal.h>
 #include <WifiManager.h>
 
+#include "letsEncryptCaCrt.h"  // CA Let's Encrypt per il broker MQTT (leCaCrt)
+
+/**
+ * @brief Aumenta lo stack del task loop() da 8 KB (default) a 16 KB.
+ *
+ * L'handshake TLS di mbedTLS (MQTT su 8883, HTTPS) consuma più stack di
+ * quello di default: senza questo aumento il primo handshake provoca uno
+ * stack overflow del loopTask e un boot loop continuo.
+ */
+SET_LOOP_TASK_STACK_SIZE(16 * 1024);
+
 namespace {
 constexpr const char* kTag = "Main";
 
@@ -43,6 +54,7 @@ struct App {
     WebPortal web;
 
     bool configured = false;
+    bool timeSyncLogged = false;  ///< log una-tantum a NTP sincronizzato
     uint32_t rebootAtMs = 0;      ///< 0 = nessun riavvio richiesto
     uint32_t lastInfoPubMs = 0;   ///< pubblicazione periodica stato gateway
     uint32_t lastNodeLoopMs = 0;
@@ -104,6 +116,10 @@ void handleCommand(const String& cmd, const String& payload) {
         String id = payload;
         id.trim();
         app->ota.confirm(id);
+    } else if (cmd == "factory_reset") {
+        Logger::warn(kTag, "Ripristino di fabbrica richiesto via MQTT");
+        app->config.factoryReset();
+        scheduleReboot();
     } else {
         Logger::warn(kTag, "Comando sconosciuto: %s", cmd.c_str());
     }
@@ -212,7 +228,6 @@ void setup() {
         app->web.onReboot(scheduleReboot);
         return;
     }
-
     // ---------------------- Avvio normale ----------------------
     wireModules();
 
@@ -220,6 +235,7 @@ void setup() {
     if (!app->lora.begin(cfg.lora)) {
         Logger::error(kTag, "LoRa non disponibile: proseguo senza radio");
     }
+    app->mqtt.setCaCert(leCaCrt);
     app->mqtt.begin(cfg.mqtt, cfg.gateway.name);
     app->weather.begin(cfg.weatherApi);
     app->ota.begin(cfg.nodeOta, app->lora, app->nodes);
@@ -235,8 +251,21 @@ void loop() {
 
     if (app->configured) {
         const bool netUp = app->wifi.isConnected();
+        if (!app->timeSyncLogged && app->time.isSynced()) {
+            app->timeSyncLogged = true;
+            Logger::info(kTag, "Ora sincronizzata: %s %s",
+                         app->time.dateitalian().c_str(),
+                         app->time.timeShort().c_str());
+            app->display.markDirty();
+        }
         app->lora.loop();
-        app->mqtt.loop(netUp);
+        // Con verifica del certificato TLS la connessione può partire solo
+        // a orologio sincronizzato: mbedTLS controlla le date di validità
+        // del certificato (a ora non valida l'handshake fallirebbe sempre).
+        const bool mqttUp =
+            netUp && (!app->config.get().mqtt.useTls() ||
+                      !app->mqtt.usesCaCert() || app->time.isSynced());
+        app->mqtt.loop(mqttUp);
         app->weather.loop(netUp);
         app->ota.loop(netUp);
         app->display.loop();
